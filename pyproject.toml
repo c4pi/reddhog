@@ -1,0 +1,138 @@
+[project]
+name = "reddhog"
+version = "0.1.0"
+description = "A resilient Reddit scraper that keeps going when others give up."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+keywords = [
+    "reddit",
+    "scraper",
+    "reddit-scraper",
+    "async",
+    "crawler",
+    "reddit-crawler",
+    "data-collection",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Typing :: Typed",
+]
+dependencies = [
+    "aiofiles>=24.1.0",
+    "httpx>=0.27.0",
+    "openpyxl>=3.1.0",
+    "pandas>=3.0.0",
+    "patchright>=1.57.2",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.12.0",
+    "rich-click>=1.9.6",
+    "tqdm>=4.66.0",
+]
+
+[project.scripts]
+reddhog = "reddhog.cli:main"
+
+[project.optional-dependencies]
+dev = ["ipykernel>=7.1.0"]
+
+[project.urls]
+Homepage = "https://github.com/c4pi/reddhog"
+Repository = "https://github.com/c4pi/reddhog"
+Issues = "https://github.com/c4pi/reddhog/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reddhog"]
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.8.0",
+    "pytest>=9.0.2",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.0",
+    "detect-secrets>=1.5.0",
+    "types-aiofiles>=25.1.0.20251011",
+    "types-openpyxl>=3.1.5.20250919",
+    "types-tqdm",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+indent-width = 4
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",       # docstrings
+    "ANN",     # type annotations enforcement
+    "TD",      # todo style
+    "FIX",     # fixme comments
+    "COM",     # trailing commas
+    "E501",    # line length
+    "DJ",      # django
+    "EXE",     # shebang
+    "T10",     # debugger
+    "TRY003",  # long exception msgs
+    "EM101",   # string in exception
+    "EM102",   # fstring in exception
+    "PLR0913", # too many args
+    "PLR2004", # magic values
+    "S101",    # assert
+    "T20",     # print statements
+    "FBT",     # boolean trap
+    "RET504",  # unnecessary assignment
+    "G004",    # logging fstring
+    "BLE001",  # blind exception
+    "TRY300",  # try else
+    "S311",    # random cryptographic
+    "C901",    # too complex
+    "PLR0911", # too many return statements
+    "PLR0912", # too many branches
+    "PLR0915", # too many statements
+    "S112",    # logging exception
+    "S110",    # try except pass
+]
+fixable = ["ALL"]
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ARG001", "ARG002", "PLR2004", "SLF001"]
+"**/__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["reddhog"]
+force-sort-within-sections = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = false
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+# strict = true
+# warn_return_any = true
+warn_unused_ignores = true
+show_error_codes = true
+packages = ["reddhog"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v"
