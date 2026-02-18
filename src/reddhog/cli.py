@@ -18,6 +18,8 @@ from reddhog.config import (
 )
 from reddhog.scraper import RedditScraper
 from reddhog.settings import Settings, get_settings
+from reddhog.warmup import DEFAULT_PROFILE_DIR, update_headless_profiles_json
+from reddhog.warmup import warmup as warmup_fn
 
 
 def _has_warmup_profiles() -> bool:
@@ -110,8 +112,6 @@ def cmd_settings(ctx: click.Context) -> None:
 
 
 def warmup_options(f):
-    from reddhog.warmup import DEFAULT_PROFILE_DIR
-
     f = click.option(
         "--profile",
         type=click.Path(path_type=Path),
@@ -151,9 +151,6 @@ def cmd_warmup(
     num_profiles: int,
     test_detection: bool,
 ) -> None:
-    from reddhog.warmup import update_headless_profiles_json
-    from reddhog.warmup import warmup as warmup_fn
-
     def remove_saved_profile(profile_dir: Path) -> None:
         for name in ("storage_state.json", "last_user_agent.txt"):
             (profile_dir / name).unlink(missing_ok=True)

@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 import aiofiles
+from anyio import Path as AnyioPath
 from openpyxl import Workbook
 
 from reddhog.config import SCRAPER_DATA
@@ -45,7 +46,7 @@ class DataManager:
         tmp_path = self.json_path.parent / (self.json_path.name + ".tmp")
         async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
             await f.write(json.dumps(data_list, ensure_ascii=False, indent=2))
-        Path(tmp_path).replace(self.json_path)
+        await AnyioPath(tmp_path).replace(self.json_path)
 
     async def upsert_and_save(self, post: Post) -> None:
         async with self._lock:

@@ -12,6 +12,7 @@ import tempfile
 import threading
 from typing import Literal
 
+from anyio import Path as AnyioPath
 from patchright.async_api import Page, async_playwright
 
 logging.basicConfig(
@@ -31,7 +32,7 @@ DETECTION_TEST_URLS = [
 
 async def warmup(profile_dir: Path, run_detection_tests: bool = False, is_retry: bool = False) -> bool:
 
-    profile_dir.mkdir(parents=True, exist_ok=True)
+    await AnyioPath(profile_dir).mkdir(parents=True, exist_ok=True)
     if is_retry:
         logger.info("")
         logger.info("  Same profile again. Complete the steps in the browser, then press ENTER here to save.")

@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 import time
 
+from anyio import Path as AnyioPath
 import httpx
 from tqdm import tqdm
 
@@ -280,7 +281,7 @@ class RedditScraper:
             return result
         await self.image_downloader.download_batch(items, browser_page)
         for url, path in items:
-            if Path(path).exists():
+            if await AnyioPath(path).exists():
                 result.append(Image(url=url.split("?")[0], local_path=str(path)))
         return result
 

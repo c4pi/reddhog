@@ -1,9 +1,9 @@
 import asyncio
 import logging
-from pathlib import Path
 import time
 
 import aiofiles
+from anyio import Path as AnyioPath
 import httpx
 
 from reddhog.clients.base import _is_closed_error
@@ -80,7 +80,7 @@ class ImageDownloader:
             self._client = None
 
     async def download(self, url: str, local_path: str, browser_page=None) -> bool:
-        if Path(local_path).exists():
+        if await AnyioPath(local_path).exists():
             return True
         try:
             async with self.semaphore:

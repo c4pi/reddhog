@@ -9,6 +9,7 @@ import tempfile
 from typing import Any
 
 import aiofiles
+from anyio import Path as AnyioPath
 from patchright.async_api import (
     Browser,
     BrowserContext,
@@ -222,7 +223,7 @@ class RedditBrowserClient:
         if not enabled or debug_dir is None:
             return
         try:
-            debug_dir.mkdir(parents=True, exist_ok=True)
+            await AnyioPath(debug_dir).mkdir(parents=True, exist_ok=True)
             safe_key = re.sub(r"[^\w\-]", "_", key)[:80]
             await page.screenshot(path=str(debug_dir / f"{safe_key}_fail.png"))
             content = await page.content()
@@ -573,7 +574,7 @@ class RedditBrowserClient:
         return comments
 
     async def _download_image(self, page: Any, url: str, local_path: Path) -> bool:
-        if local_path.exists():
+        if await AnyioPath(local_path).exists():
             return True
         try:
             response = await page.request.get(url, timeout=30_000)
@@ -593,7 +594,7 @@ class RedditBrowserClient:
         post_id: str,
         img_dir: str,
     ) -> list[Image]:
-        Path(img_dir).mkdir(parents=True, exist_ok=True)
+        await AnyioPath(img_dir).mkdir(parents=True, exist_ok=True)
         images: list[Image] = []
         seen: set[str] = set()
         index = 0
