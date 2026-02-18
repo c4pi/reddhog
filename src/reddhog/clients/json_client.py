@@ -1,7 +1,10 @@
 import asyncio
 import contextlib
 from datetime import UTC, datetime
+import json
 import logging
+from pathlib import Path
+import random
 import time
 
 import httpx
@@ -13,6 +16,46 @@ from reddhog.utils import utc_to_iso
 
 logger = logging.getLogger("reddit_scraper")
 
+_HEADLESS_PROFILES_PATH = Path(__file__).resolve().parent.parent / "defaults" / "headless_profiles.json"
+_FALLBACK_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+def _default_headers() -> dict[str, str]:
+    """Build default request headers. UA from headless_profiles.json or fallback."""
+    uas: list[str] = []
+    with _HEADLESS_PROFILES_PATH.open(encoding="utf-8") as f:
+        data = json.load(f)
+    if isinstance(data, list):
+        uas.extend(
+            p["user_agent"]
+            for p in data
+            if isinstance(p, dict) and p.get("user_agent")
+        )
+    if uas:
+        ua = random.choice(uas)
+    else:
+        ua = _FALLBACK_UA
+        logger.debug(
+            "No UA configured. Using default. Could be blocked by Cloudflare. "
+            "Run 'reddhog warmup' to populate headless_profiles.json."
+        )
+    return {
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+    }
+
 
 class RedditJSONClient:
     BASE_URL = "https://www.reddit.com"
@@ -21,7 +64,7 @@ class RedditJSONClient:
         self.semaphore = asyncio.Semaphore(concurrency)
         self.json_disabled_until: float = 0.0
         self.client: httpx.AsyncClient | None = httpx.AsyncClient(
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (compatible; RedditScraper/1.0)"},
+            headers=_default_headers(),
             timeout=TIMEOUT,
             follow_redirects=True,
         )
@@ -62,9 +105,9 @@ class RedditJSONClient:
                 response=resp,
             )
         if "/api/morechildren.json" in url:
-            logger.debug(f"morechildren {resp.status_code} for {url}")
+            logger.debug("morechildren %s for %s", resp.status_code, url)
         else:
-            logger.info(f"JSON {resp.status_code} for {url}")
+            logger.info("JSON %s for %s", resp.status_code, url)
         raise httpx.HTTPStatusError(
             f"JSON error {resp.status_code} for {url}",
             request=resp.request,
@@ -145,7 +188,7 @@ class RedditJSONClient:
             except httpx.HTTPStatusError as e:
                 if e.response.status_code >= 500:
                     raise
-                logger.debug(f"morechildren {e.response.status_code}: skip {len(batch)} ID(s)")
+                logger.debug("morechildren %s: skip %d ID(s)", e.response.status_code, len(batch))
                 continue
             except (RuntimeError, Exception):
                 continue

@@ -1,11 +1,15 @@
 import asyncio
 from datetime import UTC, datetime
+import json
 import logging
 from pathlib import Path
+import random
 import re
+import tempfile
 from typing import Any
 
 import aiofiles
+from anyio import Path as AnyioPath
 from patchright.async_api import (
     Browser,
     BrowserContext,
@@ -17,13 +21,27 @@ from reddhog.clients.base import BrowserRateLimitError, _is_closed_error, _safe_
 from reddhog.config import (
     BROWSER_COOLDOWN_FALLBACK_SECONDS,
     BROWSER_FIRST_LOAD_TIMEOUT_MS,
-    BROWSER_WARMUP_TIMEOUT_MS,
-    BROWSER_WARMUP_URL,
 )
 from reddhog.models import Comment, Image, Post
 from reddhog.utils import safe_int
 
 logger = logging.getLogger("reddit_scraper")
+
+_DEFAULT_PROFILE_DIR = Path(tempfile.gettempdir()) / "reddhog_browser_profile"
+
+_HEADLESS_PROFILES_PATH = Path(__file__).resolve().parent.parent / "defaults" / "headless_profiles.json"
+
+
+def _load_headless_profiles() -> list[dict[str, Any]]:
+    """Load headless profiles from package data; return empty list on error."""
+    try:
+        with _HEADLESS_PROFILES_PATH.open(encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list) and data:
+            return data
+    except Exception as e:
+        logger.warning("Could not load headless profiles from %s: %s", _HEADLESS_PROFILES_PATH, e)
+    return []
 
 MORE_COMMENTS_SELECTORS = [
     "button[slot='more-comments-button']",
@@ -31,11 +49,39 @@ MORE_COMMENTS_SELECTORS = [
     "button:has-text('more repl')",
     "button:has-text('more comment')",
 ]
-NAV_TIMEOUT = 60000
-POST_LOAD_TIMEOUT = 15000
-LISTING_LOAD_TIMEOUT = 15000
-MAX_LOAD_ATTEMPTS = 5
+
+NAV_TIMEOUT = 45_000
+POST_LOAD_TIMEOUT = 15_000
+LISTING_LOAD_TIMEOUT = 15_000
+MAX_LOAD_ATTEMPTS = 3
 MAX_MORE_COMMENT_ROUNDS = 10
+EXPAND_COMMENTS_TIMEOUT_SECONDS = 75
+STALENESS_CHECK_INTERVAL = 20
+PAGE_SETTLE_SECONDS = 1.5
+NAV_JITTER_MIN = 0.0
+NAV_JITTER_MAX = 1.5
+
+CONTENT_SELECTORS = [
+    "shreddit-post",
+    "div[data-testid='post-container']",
+    "article",
+    "div.Post",
+]
+
+BLOCK_INDICATOR_SELECTORS = [
+    "iframe[src*='captcha']",
+    "iframe[src*='challenges.cloudflare']",
+    "#cf-challenge-running",
+    "[data-sitekey]",  # reCAPTCHA
+]
+BLOCK_INDICATOR_TEXTS = (
+    "too many requests",
+    "you've been blocked",
+    "you have been blocked",
+    "rate limit",
+    "try again later",
+    "please try again later",
+)
 
 
 async def _attr(el: Any, names: list[str], default: str = "") -> str:
@@ -62,42 +108,89 @@ async def _best_image_src(img: Any) -> str | None:
 
 
 class RedditBrowserClient:
-    def __init__(self, headless: bool = True):
+    def __init__(
+        self,
+        headless: bool = False,
+        profile_dir: Path | None = None,
+    ):
         self._headless = headless
+        self._profile_dir = Path(profile_dir) if profile_dir else _DEFAULT_PROFILE_DIR
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._started = False
-        self._first_real_load_pending = True
+        self._start_lock = asyncio.Lock()
+        self._first_real_load_pending = False
+        self._page_load_count = 0
 
     async def start(self) -> None:
-        if self._started:
-            return
-        self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(
-            headless=self._headless,
-            args=["--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"],
-        )
-        self._context = await self._browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        )
-        self._started = True
-        self._first_real_load_pending = True
-        await self._warmup()
+        async with self._start_lock:
+            if self._started:
+                return
 
-    async def _warmup(self) -> None:
-        page: Any | None = None
-        try:
-            page = await self._context.new_page()  # type: ignore[union-attr]
-            await page.goto(BROWSER_WARMUP_URL, timeout=BROWSER_WARMUP_TIMEOUT_MS, wait_until="load")
-        except Exception as exc:
-            logger.debug("Browser warmup failed: %s", exc)
-        finally:
-            await _safe_close_page(page)
+            self._profile_dir.mkdir(parents=True, exist_ok=True)
+            logger.debug("Browser starting: headless=%s profile=%s", self._headless, self._profile_dir)
+
+            self._playwright = await async_playwright().start()
+
+            state_path = self._profile_dir / "storage_state.json"
+            if not state_path.exists():
+                raise FileNotFoundError(
+                    f"Profile storage state not found: {state_path}. "
+                    "Run: reddhog warmup --num-profiles 3"
+                )
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--window-size=1920,1080",
+            ]
+            if self._headless:
+                # Chrome 112+ "new" headless runs full Chrome with virtual display — harder to detect than old headless.
+                launch_args.append("--headless=new")
+            self._browser = await self._playwright.chromium.launch(
+                channel="chrome",
+                headless=self._headless,
+                args=launch_args,
+            )
+            context_options: dict[str, Any] = {
+                "viewport": {"width": 1920, "height": 1080},
+                "storage_state": str(state_path),
+            }
+            if self._headless:
+                profiles = _load_headless_profiles()
+                if profiles:
+                    profile = random.choice(profiles)
+                    context_options["user_agent"] = profile.get("user_agent")
+                    if isinstance(profile.get("viewport"), dict):
+                        context_options["viewport"] = profile["viewport"]
+                    if profile.get("locale"):
+                        context_options["locale"] = profile["locale"]
+                    if profile.get("timezone_id"):
+                        context_options["timezone_id"] = profile["timezone_id"]
+                else:
+                    logger.warning(
+                        "No headless profiles found. Run 'reddhog warmup' first to generate browser profiles, "
+                        "or the browser client will use a generic fallback UA (less safe)."
+                    )
+                    context_options["user_agent"] = (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                    )
+            self._context = await self._browser.new_context(**context_options)
+            self._first_real_load_pending = True
+
+            self._started = True
+            logger.debug("Browser started successfully")
 
     async def close(self) -> None:
         if self._context:
+            if self._profile_dir:
+                state_path = self._profile_dir / "storage_state.json"
+                try:
+                    await self._context.storage_state(path=str(state_path))
+                    logger.debug("Saved storage state to %s", state_path)
+                except Exception as exc:
+                    logger.warning("Could not save storage state to %s: %s", state_path, exc)
             try:
                 await self._context.close()
             except Exception as exc:
@@ -119,7 +212,6 @@ class RedditBrowserClient:
                     raise
             self._playwright = None
         self._started = False
-        self._first_real_load_pending = True
 
     async def _save_fail_artifacts(
         self,
@@ -131,14 +223,43 @@ class RedditBrowserClient:
         if not enabled or debug_dir is None:
             return
         try:
-            debug_dir.mkdir(parents=True, exist_ok=True)
+            await AnyioPath(debug_dir).mkdir(parents=True, exist_ok=True)
             safe_key = re.sub(r"[^\w\-]", "_", key)[:80]
             await page.screenshot(path=str(debug_dir / f"{safe_key}_fail.png"))
             content = await page.content()
             async with aiofiles.open(debug_dir / f"{safe_key}_fail.html", "w", encoding="utf-8") as handle:
                 await handle.write(content)
+            logger.debug("Saved fail artifacts to %s/%s_fail.*", debug_dir, safe_key)
+        except Exception as e:
+            logger.debug("Could not save fail artifacts: %s", e)
+
+    async def _wait_for_any_content(self, page: Any, timeout_ms: int) -> str | None:
+        """Try multiple selectors, return the first one that matches."""
+        for selector in CONTENT_SELECTORS:
+            try:
+                await page.wait_for_selector(selector, state="attached", timeout=timeout_ms)
+                logger.debug("Content selector matched: %s", selector)
+                return selector
+            except Exception:
+                continue
+        return None
+
+    async def _check_block_page(self, page: Any) -> bool:
+        """Return True if the page shows block/rate-limit indicators."""
+        try:
+            for selector in BLOCK_INDICATOR_SELECTORS:
+                el = await page.query_selector(selector)
+                if el and await el.is_visible():
+                    return True
+            body = await page.query_selector("body")
+            if body:
+                text = (await body.inner_text()).lower()
+                for phrase in BLOCK_INDICATOR_TEXTS:
+                    if phrase in text:
+                        return True
         except Exception:
             pass
+        return False
 
     async def _open_page_with_retries(
         self,
@@ -151,25 +272,37 @@ class RedditBrowserClient:
         last_error: Exception | None = None
         use_short_first_attempt = self._first_real_load_pending
         self._first_real_load_pending = False
+
         for attempt in range(MAX_LOAD_ATTEMPTS):
+            if attempt == 0:
+                jitter = random.uniform(NAV_JITTER_MIN, NAV_JITTER_MAX)
+                if jitter > 0:
+                    await asyncio.sleep(jitter)
             page = await self._context.new_page()  # type: ignore[union-attr]
             try:
                 wait_timeout = wait_timeout_ms
                 if use_short_first_attempt and attempt == 0:
                     wait_timeout = min(wait_timeout_ms, BROWSER_FIRST_LOAD_TIMEOUT_MS)
                 await page.goto(url, timeout=NAV_TIMEOUT, wait_until="load")
-                await page.wait_for_selector("shreddit-post", state="attached", timeout=wait_timeout)
+                matched = await self._wait_for_any_content(page, wait_timeout)
+                if matched is None:
+                    raise RuntimeError("No content selector matched")  # noqa: TRY301
+                await asyncio.sleep(PAGE_SETTLE_SECONDS)
+                self._page_load_count += 1
+                if self._page_load_count % STALENESS_CHECK_INTERVAL == 0:
+                    self._first_real_load_pending = True
                 return page
             except Exception as exc:
                 last_error = exc
+                logger.debug(
+                    "Attempt %d/%d FAILED for %s: %s: %s",
+                    attempt + 1, MAX_LOAD_ATTEMPTS, url, type(exc).__name__, exc,
+                )
                 await self._save_fail_artifacts(page, artifact_key, debug_dir, save_fail_artifacts)
                 await _safe_close_page(page)
                 if attempt < MAX_LOAD_ATTEMPTS - 1:
                     await asyncio.sleep(attempt + 1)
-        message = f"Failed to load {url}"
-        if last_error is not None:
-            message = f"{message}: {last_error}"
-        raise RuntimeError(message)
+        raise RuntimeError(f"All {MAX_LOAD_ATTEMPTS} attempts failed for {url}: {last_error}")
 
     async def get_subreddit_posts(
         self,
@@ -181,8 +314,8 @@ class RedditBrowserClient:
         save_fail_artifacts: bool = True,
     ) -> tuple[list[Post], str | None]:
         del after
+        listing_url = f"https://www.reddit.com/r/{subreddit}/new/"
         try:
-            listing_url = f"https://www.reddit.com/r/{subreddit}/new/"
             page = await self._open_page_with_retries(
                 listing_url,
                 LISTING_LOAD_TIMEOUT,
@@ -196,6 +329,7 @@ class RedditBrowserClient:
         except BrowserRateLimitError:
             raise
         except Exception as exc:
+            logger.debug("get_subreddit_posts failed: %s", type(exc).__name__, exc_info=exc)
             raise BrowserRateLimitError(
                 BROWSER_COOLDOWN_FALLBACK_SECONDS,
                 f"Browser listing unavailable: {exc}",
@@ -233,6 +367,7 @@ class RedditBrowserClient:
         except BrowserRateLimitError:
             raise
         except Exception as exc:
+            logger.debug("get_post_details failed for %s: %s", post_id, type(exc).__name__, exc_info=exc)
             raise BrowserRateLimitError(
                 BROWSER_COOLDOWN_FALLBACK_SECONDS,
                 f"Browser post unavailable: {exc}",
@@ -250,6 +385,11 @@ class RedditBrowserClient:
         posts: list[Post] = []
         crawled_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         for _ in range(max_scrolls):
+            if await self._check_block_page(page):
+                raise BrowserRateLimitError(
+                    BROWSER_COOLDOWN_FALLBACK_SECONDS,
+                    "Block/rate-limit page detected during listing scroll",
+                )
             elements = await page.query_selector_all("shreddit-post")
             for element in elements:
                 try:
@@ -283,28 +423,63 @@ class RedditBrowserClient:
         return posts
 
     async def expand_all_comments(self, page: Any) -> None:
-        for _ in range(MAX_MORE_COMMENT_ROUNDS):
-            buttons: list[Any] = []
-            for selector in MORE_COMMENTS_SELECTORS:
-                buttons.extend(await page.query_selector_all(selector))
-            if not buttons:
-                return
-            clicked_any = False
-            for button in buttons:
+        async def _do_expand() -> None:
+            collapsed = await page.query_selector_all("shreddit-comment[collapsed]")
+            for element in collapsed:
                 try:
-                    tag_name = await button.evaluate("el => el.tagName")
-                    if tag_name == "A":
-                        href = await button.get_attribute("href")
-                        if href and "/comments/" in href:
-                            continue
-                    if await button.is_visible():
-                        await button.scroll_into_view_if_needed()
-                        await button.click()
-                        clicked_any = True
+                    toggle = await element.query_selector("button[aria-label], button[slot='collapse-toggle']")
+                    if toggle and await toggle.is_visible():
+                        await toggle.click()
+                        continue
+                    expand = await element.query_selector("details > summary, .expand-button")
+                    if expand and await expand.is_visible():
+                        await expand.click()
+                        continue
+                    await element.evaluate("el => el.removeAttribute('collapsed')")
                 except Exception:
                     continue
-            if not clicked_any:
-                return
+            if collapsed:
+                await asyncio.sleep(1.0)
+
+            for _ in range(MAX_MORE_COMMENT_ROUNDS):
+                buttons: list[Any] = []
+                for selector in MORE_COMMENTS_SELECTORS:
+                    buttons.extend(await page.query_selector_all(selector))
+                if not buttons:
+                    break
+                clicked_any = False
+                for button in buttons:
+                    try:
+                        tag_name = await button.evaluate("el => el.tagName")
+                        if tag_name == "A":
+                            href = await button.get_attribute("href")
+                            if href and "/comments/" in href:
+                                continue
+                        if await button.is_visible():
+                            await button.scroll_into_view_if_needed()
+                            await button.click()
+                            clicked_any = True
+                    except Exception:
+                        continue
+                if not clicked_any:
+                    break
+                await asyncio.sleep(1.5)
+
+                newly_collapsed = await page.query_selector_all("shreddit-comment[collapsed]")
+                for element in newly_collapsed:
+                    try:
+                        await element.evaluate("el => el.removeAttribute('collapsed')")
+                    except Exception:
+                        continue
+
+        try:
+            await asyncio.wait_for(_do_expand(), timeout=EXPAND_COMMENTS_TIMEOUT_SECONDS)
+        except TimeoutError:
+            logger.debug(
+                "expand_all_comments hit wall-clock timeout (%ds); some comments may be unexpanded",
+                EXPAND_COMMENTS_TIMEOUT_SECONDS,
+            )
+
 
     async def _extract_post_meta(self, page: Any, post_el: Any) -> dict[str, str]:
         meta = {
@@ -399,10 +574,10 @@ class RedditBrowserClient:
         return comments
 
     async def _download_image(self, page: Any, url: str, local_path: Path) -> bool:
-        if local_path.exists():
+        if await AnyioPath(local_path).exists():
             return True
         try:
-            response = await page.request.get(url, timeout=30000)
+            response = await page.request.get(url, timeout=30_000)
             if not response.ok:
                 return False
             body = await response.body()
@@ -419,7 +594,7 @@ class RedditBrowserClient:
         post_id: str,
         img_dir: str,
     ) -> list[Image]:
-        Path(img_dir).mkdir(parents=True, exist_ok=True)
+        await AnyioPath(img_dir).mkdir(parents=True, exist_ok=True)
         images: list[Image] = []
         seen: set[str] = set()
         index = 0
