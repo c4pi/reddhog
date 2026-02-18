@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
+import tempfile
 
 import httpx
 import pytest
@@ -153,6 +154,10 @@ def test_browser_pool_uses_rotation_quota(monkeypatch):
             type(self).closed += 1
 
     monkeypatch.setattr(core_mod, "RedditBrowserClient", FakeBrowserClient)
+    monkeypatch.setattr(core_mod, "BROWSER_NUM_PROFILES", 1)
+    monkeypatch.setattr(
+        core_mod, "BROWSER_PROFILE_BASE", Path(tempfile.gettempdir()) / "reddhog_browser_profile"
+    )
 
     pool = core_mod._BrowserPool(
         concurrency=1,

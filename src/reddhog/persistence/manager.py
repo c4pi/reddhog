@@ -102,4 +102,4 @@ class DataManager:
             ]
             ws.append(row)
         wb.save(str(self.excel_path))
-        logger.info(f"Exported Excel: {self.excel_path}")
+        logger.info("Exported Excel: %s", self.excel_path)

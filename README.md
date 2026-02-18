@@ -48,13 +48,27 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### Then install the Chromium driver (required)
+### Then install the Chrome driver (required)
 
-ReddHog uses **Patchright** for browser-based fallback scraping. You **must** install the Chromium driver after dependencies:
+ReddHog uses **Patchright** for browser-based fallback scraping. You **must** install the Chrome driver after dependencies:
 
 ```bash
-patchright install chromium
+patchright install chrome
 ```
+
+### Run warmup first (recommended)
+
+Before scraping, run **warmup** once to create browser profiles with real cookies and user agents. This reduces the chance of being blocked by Reddit:
+
+```bash
+reddhog warmup
+```
+
+- Opens a Chrome window, loads Reddit; you accept cookies, solve any CAPTCHAs, scroll a bit, then press ENTER.
+- Saves storage state and User-Agent into a profile directory that the scraper reuses.
+- For multiple browser profiles (e.g. rotation): `reddhog warmup --num-profiles 3`
+
+**Without warmup** the tool still runs, but the JSON and browser clients fall back to a generic User-Agent that is easier for Reddit to detect and block. Running warmup is the recommended first step after installation.
 
 ### Now you can run reddhog
 
@@ -89,6 +103,7 @@ data/
 
 | Command                          | What it does                                                                                                 |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `reddhog warmup`                 | Warm browser profiles (run once after install). Creates profiles with real cookies/UAs for safer scraping.   |
 | `reddhog version`                | Show version number                                                                                          |
 | `reddhog settings`               | Show effective settings (app_env, debug, log_level)                                                          |
 | `reddhog subreddit NAME [LIMIT]` | Scrape posts from a subreddit; results go to ./data/<name>/                                                  |
@@ -101,7 +116,7 @@ data/
 | -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--export [excel\|csv]`                | —        | Also write Excel or CSV next to data.json. If omitted, only data.json is created; existing .xlsx/.csv in the output folder are updated if present |
 | `--headless` / `--no-headless`         | headless | Run the browser with no window. Use `--no-headless` to see the browser window (useful for debugging).                                             |
-| `-c, --concurrency`                    | 5        | Number of requests to run in parallel. Lower if you hit rate limits                                                                               |
+| `-c, --concurrency`                    | 6        | Number of requests to run in parallel. Lower if you hit rate limits                                                                               |
 | `-s, --strategy [auto\|json\|browser]` | auto     | `auto`: JSON first with browser fallback. `json`: JSON-only. `browser`: browser-only for post scraping                                            |
 
 ### Strategy behavior

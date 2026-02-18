@@ -17,6 +17,8 @@ from reddhog.clients import (
 from reddhog.clients.base import _is_closed_error
 from reddhog.config import (
     BROWSER_COOLDOWN_FALLBACK_SECONDS,
+    BROWSER_NUM_PROFILES,
+    BROWSER_PROFILE_BASE,
     BROWSER_ROTATION_QUOTA,
     DEFAULT_CONCURRENCY,
     IMG_CONCURRENCY,
@@ -34,9 +36,15 @@ CONSECUTIVE_EXISTING_THRESHOLD = 100
 
 
 class _BrowserSlot:
-    __slots__ = ("browser", "inflight", "quota_remaining", "slot_lock", "tab_sem")
+    __slots__ = ("browser", "inflight", "profile_dir", "quota_remaining", "slot_lock", "tab_sem")
 
-    def __init__(self, tabs_per_browser: int, rotation_quota: int):
+    def __init__(
+        self,
+        profile_dir: Path,
+        tabs_per_browser: int,
+        rotation_quota: int,
+    ):
+        self.profile_dir = profile_dir
         self.tab_sem = asyncio.Semaphore(tabs_per_browser)
         self.inflight = 0
         self.quota_remaining = rotation_quota
@@ -54,7 +62,10 @@ class _BrowserLease:
         await self._slot.tab_sem.acquire()
         async with self._slot.slot_lock:
             if self._slot.browser is None:
-                self._slot.browser = RedditBrowserClient(headless=self.pool.headless)
+                self._slot.browser = RedditBrowserClient(
+                    headless=self.pool.headless,
+                    profile_dir=self._slot.profile_dir,
+                )
                 await self._slot.browser.start()
             self._browser = self._slot.browser
             self._slot.inflight += 1
@@ -88,12 +99,24 @@ class _BrowserPool:
         rotation_quota: int,
         headless: bool,
     ):
+        max_capacity = BROWSER_NUM_PROFILES * tabs_per_browser
+        if concurrency > max_capacity:
+            raise ValueError(
+                f"Concurrency {concurrency} exceeds browser capacity {max_capacity} "
+                f"({BROWSER_NUM_PROFILES} profiles x {tabs_per_browser} tabs). "
+                f"Use --concurrency {max_capacity} or lower."
+            )
         self.headless = headless
         self._tabs_per_browser = tabs_per_browser
         self.rotation_quota = rotation_quota
-        n = max(1, (concurrency + tabs_per_browser - 1) // tabs_per_browser)
+        n = BROWSER_NUM_PROFILES
         self._slots: list[_BrowserSlot] = [
-            _BrowserSlot(tabs_per_browser, rotation_quota) for _ in range(n)
+            _BrowserSlot(
+                Path(f"{BROWSER_PROFILE_BASE}_{i}"),
+                tabs_per_browser,
+                rotation_quota,
+            )
+            for i in range(n)
         ]
         self._index = 0
         self._pool_lock = asyncio.Lock()
@@ -107,6 +130,14 @@ class _BrowserPool:
         lease = _BrowserLease(self, slot)
         async with lease as browser:
             yield browser
+
+    async def request_rotation_all(self) -> None:
+        """Mark all slots for browser replacement when their lease is released.
+        Use this on rate limit instead of close_all() so in-flight tasks are not
+        given a closed browser (which causes TargetClosedError / NoneType)."""
+        for slot in self._slots:
+            async with slot.slot_lock:
+                slot.quota_remaining = 0
 
     async def close_all(self) -> None:
         for slot in self._slots:
@@ -224,7 +255,13 @@ class RedditScraper:
             if cooldown_seconds is not None
             else BROWSER_COOLDOWN_FALLBACK_SECONDS
         )
-        self.browser_cooldown_until = time.monotonic() + cooldown
+        now = time.monotonic()
+        previous_until = self.browser_cooldown_until
+        new_until = max(previous_until, now + cooldown)
+        self.browser_cooldown_until = new_until
+        # Only log when we are entering cooldown from a non-cooldown state.
+        if previous_until <= now:
+            logger.info("Scraping browser cooldown %.0fs", cooldown)
         return cooldown
 
     async def close(self) -> None:
@@ -285,10 +322,9 @@ class RedditScraper:
                             debug_dir=debug_dir,
                         )
                 except BrowserRateLimitError as e:
-                    cooldown = self._set_browser_cooldown(e.cooldown_seconds)
+                    self._set_browser_cooldown(e.cooldown_seconds)
                     if self._browser_pool is not None:
                         await self._browser_pool.close_all()
-                    logger.info("Listing browser cooldown %.0fs", cooldown)
                 except Exception as e:
                     if _is_closed_error(e):
                         continue
@@ -369,10 +405,9 @@ class RedditScraper:
                     )
                 return post
             except BrowserRateLimitError as e:
-                cooldown = self._set_browser_cooldown(e.cooldown_seconds)
+                self._set_browser_cooldown(e.cooldown_seconds)
                 if self._browser_pool is not None:
                     await self._browser_pool.close_all()
-                logger.info("Scraping browser cooldown %.0fs", cooldown)
                 await self._wait_for_post_backend_ready()
             except Exception as e:
                 if _is_closed_error(e):
@@ -388,7 +423,7 @@ class RedditScraper:
             ):
                 setattr(post, field, getattr(full_post, field))
         except Exception as e:
-            logger.warning(f"Failed to fill {post.id}: {e}")
+            logger.debug("Failed to fill %s: %s", post.id, e)
         await self.data_manager.upsert_and_save(post)  # type: ignore[union-attr]
 
     async def _refresh_post(self, post: Post, subreddit: str) -> bool:
@@ -400,7 +435,7 @@ class RedditScraper:
             post.comments = merge_comment_lists(post.comments, full_post.comments)
             return True
         except Exception as e:
-            logger.warning(f"Failed to refresh {post.id}: {e}")
+            logger.debug("Failed to refresh %s: %s", post.id, e)
             return False
 
     async def _collect_posts(
@@ -445,7 +480,11 @@ class RedditScraper:
 
         if stopped_no_more_pages:
             req = f" (requested {max_posts})" if max_posts is not None and len(collected) < max_posts else ""
-            logger.info(f"Reddit limits listing to ~1000 posts. Collected {len(collected)}{req}. Run daily to get more history.")
+            logger.info(
+                "Reddit limits listing to ~1000 posts. Collected %d%s. Run daily to get more history.",
+                len(collected),
+                req,
+            )
 
         return [post for post in collected if post.id not in existing_ids], len(collected)
 
@@ -506,14 +545,18 @@ class RedditScraper:
 
         new_total = len(self.data_manager.data)
         logger.info(
-            f"Scraped subreddit r/{subreddit}: {new_posts_count} new posts, {new_total} total (started with {existing_count})",
+            "Scraped subreddit r/%s: %d new posts, %d total (started with %d)",
+            subreddit,
+            new_posts_count,
+            new_total,
+            existing_count,
         )
 
     async def scrape_single_post(self, url: str) -> Post | None:
         post_id = extract_post_id_from_url(url)
         subreddit = extract_subreddit_from_url(url)
         if not post_id or not subreddit:
-            logger.error(f"Could not parse URL: {url}")
+            logger.error("Could not parse URL: %s", url)
             return None
         self._ensure_data_dir(subreddit)
         self.data_manager = DataManager(self.data_dir)
@@ -523,7 +566,7 @@ class RedditScraper:
             ok = await self._refresh_post(existing, subreddit)
             if ok:
                 await self.data_manager.upsert_and_save(existing)
-                logger.info(f"Refreshed post {post_id}")
+                logger.info("Refreshed post %s", post_id)
                 return existing
         clean_id = post_id.replace("t3_", "")
         post_url = f"https://www.reddit.com/r/{subreddit}/comments/{clean_id}/"
@@ -546,7 +589,7 @@ class RedditScraper:
         for post in posts:
             subreddit_name = extract_subreddit_from_url(post.url or "")
             if not subreddit_name:
-                logger.warning(f"Skipping post {post.id or '?'}: no Reddit URL")
+                logger.debug("Skipping post %s: no Reddit URL", post.id or "?")
                 continue
             to_refresh.append((post, subreddit_name))
         if not to_refresh:
@@ -575,4 +618,4 @@ class RedditScraper:
                     await self.data_manager.upsert_and_save(
                         self.data_manager.data[post_id]
                     )
-        logger.info(f"Refreshed {refreshed_count}/{len(to_refresh)} posts")
+        logger.info("Refreshed %d/%d posts", refreshed_count, len(to_refresh))

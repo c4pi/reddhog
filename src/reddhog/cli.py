@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from pathlib import Path
 import sys
 from typing import TypedDict, cast
 
@@ -10,9 +11,22 @@ from rich_click import rich_click as click_config
 from tqdm import tqdm
 
 from reddhog import __version__
-from reddhog.config import DEFAULT_CONCURRENCY
+from reddhog.config import (
+    BROWSER_NUM_PROFILES,
+    BROWSER_PROFILE_BASE,
+    DEFAULT_CONCURRENCY,
+)
 from reddhog.scraper import RedditScraper
 from reddhog.settings import Settings, get_settings
+
+
+def _has_warmup_profiles() -> bool:
+    if BROWSER_NUM_PROFILES <= 1:
+        return (BROWSER_PROFILE_BASE / "storage_state.json").exists()
+    for i in range(BROWSER_NUM_PROFILES):
+        if (Path(f"{BROWSER_PROFILE_BASE}_{i}") / "storage_state.json").exists():
+            return True
+    return False
 
 
 class CliContext(TypedDict):
@@ -22,6 +36,16 @@ class CliContext(TypedDict):
 def _run_async(async_run_fn, *args, **kwargs) -> None:
     try:
         asyncio.run(async_run_fn(*args, **kwargs))
+    except FileNotFoundError as e:
+        if "storage_state" in str(e) or "storage state" in str(e).lower():
+            click.secho(
+                "Browser profile not found. Run 'reddhog warmup' first.",
+                err=True,
+                fg="red",
+            )
+        else:
+            click.secho(str(e), err=True, fg="red")
+        sys.exit(1)
     except httpx.HTTPStatusError as e:
         if e.response.status_code >= 500:
             click.secho("Reddit is not available.", err=True, fg="red")
@@ -83,6 +107,89 @@ def cmd_settings(ctx: click.Context) -> None:
     context = cast("CliContext", ctx.obj)
     settings = context["settings"]
     click.echo(f"log_level={settings.log_level}")
+
+
+def warmup_options(f):
+    from reddhog.warmup import DEFAULT_PROFILE_DIR
+
+    f = click.option(
+        "--profile",
+        type=click.Path(path_type=Path),
+        default=DEFAULT_PROFILE_DIR,
+        show_default=True,
+        help="Profile directory when num-profiles=1.",
+    )(f)
+    f = click.option(
+        "--profile-base",
+        type=click.Path(path_type=Path),
+        default=DEFAULT_PROFILE_DIR,
+        show_default=True,
+        help="Base path for profiles when num-profiles>1; dirs will be {base}_0, {base}_1, ...",
+    )(f)
+    f = click.option(
+        "--num-profiles",
+        "-n",
+        type=int,
+        default=3,
+        metavar="N",
+        show_default=True,
+        help="Number of profiles to warm.",
+    )(f)
+    f = click.option(
+        "--test-detection",
+        is_flag=True,
+        help="Also open bot-detection test pages.",
+    )(f)
+    return f
+
+
+@cli_group.command("warmup", help="Warm up browser profiles (run once after install). Opens Chrome, loads Reddit; solve CAPTCHAs / accept cookies, then press ENTER in the terminal to save. Do not close the browser with X.")
+@warmup_options
+def cmd_warmup(
+    profile: Path,
+    profile_base: Path,
+    num_profiles: int,
+    test_detection: bool,
+) -> None:
+    from reddhog.warmup import update_headless_profiles_json
+    from reddhog.warmup import warmup as warmup_fn
+
+    def remove_saved_profile(profile_dir: Path) -> None:
+        for name in ("storage_state.json", "last_user_agent.txt"):
+            (profile_dir / name).unlink(missing_ok=True)
+
+    async def run() -> None:
+        log = logging.getLogger("reddhog.warmup")
+        for i in range(num_profiles):
+            profile_dir = Path(f"{profile_base}_{i}") if num_profiles > 1 else profile
+            is_retry = False
+            while True:
+                if num_profiles > 1:
+                    log.info("Warming profile %d/%d: %s", i + 1, num_profiles, profile_dir)
+                saved = await warmup_fn(
+                    profile_dir,
+                    run_detection_tests=test_detection,
+                    is_retry=is_retry,
+                )
+                if saved:
+                    break
+                remove_saved_profile(profile_dir)
+                is_retry = True
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                log.info(
+                    "You closed the browser with X. The profile was not saved. Re-opening the same profile."
+                )
+        if num_profiles > 1:
+            log.info("All %d profiles warmed.", num_profiles)
+        profile_dirs = (
+            [Path(f"{profile_base}_{i}") for i in range(num_profiles)]
+            if num_profiles > 1
+            else [profile]
+        )
+        update_headless_profiles_json(profile_dirs)
+
+    asyncio.run(run())
 
 
 def shared_options(f):
@@ -153,6 +260,14 @@ async def async_run(
     command: str,
     **kwargs,
 ) -> None:
+    if strategy in ("auto", "browser") and not _has_warmup_profiles():
+        click.secho(
+            "Browser profiles not found. Run 'reddhog warmup' first.\n"
+            "Required for --strategy browser and for browser fallback when JSON is rate-limited.",
+            err=True,
+            fg="red",
+        )
+        sys.exit(1)
     scraper = RedditScraper(
         strategy=strategy,
         concurrency=concurrency,

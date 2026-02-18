@@ -799,21 +799,21 @@ wheels = [
 
 [[package]]
 name = "patchright"
-version = "1.57.2"
+version = "1.58.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "greenlet" },
     { name = "pyee" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/9d/2e8ab9f09bdbfd4b8b17229f92f3b2af32fd8474a19c92d94f08c7a78dd1/patchright-1.57.2-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:eecd88992104156da183bf0e0144a43c278227a0eb9e538ae62c3f01448b86b8", size = 41963318, upload-time = "2025-12-30T15:33:40.533Z" },
-    { url = "https://files.pythonhosted.org/packages/df/a0/80ee346f4d22cca4d6e6112e162dad51d9702350438b4b644acfe2874ce2/patchright-1.57.2-py3-none-macosx_11_0_arm64.whl", hash = "sha256:b16d07fc454fbd7392c29663784abf9a577b2482df3479ae487ecd8bc3948b68", size = 40753852, upload-time = "2025-12-30T15:33:43.558Z" },
-    { url = "https://files.pythonhosted.org/packages/49/84/d3f53f39855288bbe26a4ee8b5af00e1aab940af7dc971be53b3209671a9/patchright-1.57.2-py3-none-macosx_11_0_universal2.whl", hash = "sha256:af8e74a16af04dda592a8f8e89e4dd041e1ffcfd90566d17577176958fe80393", size = 41963318, upload-time = "2025-12-30T15:33:46.451Z" },
-    { url = "https://files.pythonhosted.org/packages/fa/6b/214164f57f339742c3795e55cd472c7cdb82ac769d89548c6526477794f8/patchright-1.57.2-py3-none-manylinux1_x86_64.whl", hash = "sha256:5119daf606c0d21185ef4d2a6f4008db915173ed11601ebedd67abadcab0d594", size = 45953528, upload-time = "2025-12-30T15:33:49.554Z" },
-    { url = "https://files.pythonhosted.org/packages/96/5c/fb81d91376ac15d275812ab6fb8048506ee444413a97319ef640817b0984/patchright-1.57.2-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b58d6b2122c47dc72204847eff0ec0ea67afcb1f6573fa3f357b149b389af4ff", size = 45685195, upload-time = "2025-12-30T15:33:52.576Z" },
-    { url = "https://files.pythonhosted.org/packages/c2/87/7a2e2fab5d25aa4fce59dfe9d69d3b18a437b19243fdf498697dc1fe0f98/patchright-1.57.2-py3-none-win32.whl", hash = "sha256:54f5f090ed5c9bb331c79c5546b9a43854ee87eb31072c308f45c76561e409b5", size = 36532138, upload-time = "2025-12-30T15:33:55.802Z" },
-    { url = "https://files.pythonhosted.org/packages/d1/0f/ed5262996ea573632c4c18ab72c8eafc1eb1ee2c8b3d8470cb52f7075ca1/patchright-1.57.2-py3-none-win_amd64.whl", hash = "sha256:8865dca554dbe98b585e277f3d151e0b5fccdf3765408ec0c8631093f7828eda", size = 36532143, upload-time = "2025-12-30T15:33:58.507Z" },
-    { url = "https://files.pythonhosted.org/packages/5c/31/5371fb36ec6ec3b4b1ae1784dd5254e2c7b85d0e0d34dd371933ffde2c53/patchright-1.57.2-py3-none-win_arm64.whl", hash = "sha256:830173d31c0a9eed6c03192e191dc007f30f05bc580764860cbd0001431f6f01", size = 32816218, upload-time = "2025-12-30T15:34:01.582Z" },
+    { url = "https://files.pythonhosted.org/packages/61/c6/b1d685ccce237e280d8549454a8b5760e58ab5ee88af9ef875fad2282845/patchright-1.58.0-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:caadeec5b4812f12db5e245e78b7c1bdd9c6b38d2c15a59fa3047b04e33a3e60", size = 42229561, upload-time = "2026-01-30T15:26:54.532Z" },
+    { url = "https://files.pythonhosted.org/packages/61/13/e5726d38be9ecf9ed714346433f2536eb6423748836f4a22a6701b992ba0/patchright-1.58.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:af567d94d2d735be8fa88c6ff9418e46361d823f7b28c10c2823e51942739507", size = 41018089, upload-time = "2026-01-30T15:26:58.097Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/33/db35661268edc03381bbf61dcb3119f427591562ce45dce90d17e116ffb5/patchright-1.58.0-py3-none-macosx_11_0_universal2.whl", hash = "sha256:ccf8116a97dcef6e3865c9823f51965db069c931346afe5253e25d9486160a92", size = 42229561, upload-time = "2026-01-30T15:27:02.073Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/86/98d8f42d5186b6864144fb25e21da8aa7cffa5b9d1d76752276610b9ea58/patchright-1.58.0-py3-none-manylinux1_x86_64.whl", hash = "sha256:832bee2fe48cf9dc07bb3b0f0d05eee923203f348cd98b14c2c515eece326734", size = 46213732, upload-time = "2026-01-30T15:27:06.187Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/b1/7094545c805a31235ef69316ccc910aa5ff5e940c41e85df588ca660f00d/patchright-1.58.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:431b1df8967b4919d326a3121445c47f15769bc6a10dcebaa699073eb7d125f9", size = 45942677, upload-time = "2026-01-30T15:27:09.981Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/11/e21a51c42969473237c92a47d5433b2c58db1ec2bbd3b340ddeb33ac718f/patchright-1.58.0-py3-none-win32.whl", hash = "sha256:5529f66d296e2894789c309a13750b1a20f468daeb7de511f91bbf54cac95d95", size = 36794461, upload-time = "2026-01-30T15:27:13.409Z" },
+    { url = "https://files.pythonhosted.org/packages/d0/a1/b7dff0669ce8814c690c67eee1b44b3cdb422593efbbbbc4bfe3bf10f9fa/patchright-1.58.0-py3-none-win_amd64.whl", hash = "sha256:e37109834056feb8e4e4918fb259d497dbfc37e03f9391c0d3cf1532f5fa9b7f", size = 36794467, upload-time = "2026-01-30T15:27:16.613Z" },
+    { url = "https://files.pythonhosted.org/packages/91/2a/81ef2b079bbc925a935f2fd73dc1285c46c7eb35c5032a0d63b48d753c4a/patchright-1.58.0-py3-none-win_arm64.whl", hash = "sha256:b044efea1774beac8ee033583eac7181b86ea450da3a36d3039d7a1a428ac098", size = 33064382, upload-time = "2026-01-30T15:27:19.725Z" },
 ]
 
 [[package]]

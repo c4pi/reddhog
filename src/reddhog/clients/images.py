@@ -32,7 +32,7 @@ class ImageDownloader:
         now = time.monotonic()
         total, msg = build_cooldown(status_code, resp)
         self.images_disabled_until = now + total
-        logger.info(f"Image downloads {msg}: cooldown {total:.0f}s")
+        logger.info("Image downloads %s: cooldown %.0fs", msg, total)
 
     async def _download_via_browser(self, url: str, local_path: str, browser_page) -> bool:
         try:
@@ -43,7 +43,7 @@ class ImageDownloader:
                     await f.write(body)
                 return True
         except Exception:
-            logger.debug(f"Browser image download failed: {url}")
+            logger.debug("Browser image download failed: %s", url)
         return False
 
     async def _download_one_attempt(self, url: str, local_path: str) -> tuple[bool, int | None]:
@@ -97,7 +97,7 @@ class ImageDownloader:
                 if status in (429, 403):
                     return await self._try_browser_after_error(url, local_path, browser_page, status)
                 if status is not None and 500 <= status < 600:
-                    logger.debug(f"Image download 5xx for {url}: skip (no retry)")
+                    logger.debug("Image download 5xx for %s: skip (no retry)", url)
                     return False
                 return False
         except Exception:
