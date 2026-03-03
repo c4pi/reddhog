@@ -67,6 +67,11 @@ reddhog warmup
 - Opens a Chrome window, loads Reddit; you accept cookies, solve any CAPTCHAs, scroll a bit, then press ENTER.
 - Saves storage state and User-Agent into a profile directory that the scraper reuses.
 - For multiple browser profiles (e.g. rotation): `reddhog warmup --num-profiles 3`
+- Default profile location is persistent and OS-specific:
+  - Linux: `~/.local/state/reddhog/browser_profile` (or `$XDG_STATE_HOME/reddhog/browser_profile`)
+  - macOS: `~/Library/Application Support/reddhog/browser_profile`
+  - Windows: `%LOCALAPPDATA%\\reddhog\\browser_profile`
+- To override profile location, set `REDDHOG_PROFILE_BASE=/your/path`.
 
 **Without warmup** the tool still runs, but the JSON and browser clients fall back to a generic User-Agent that is easier for Reddit to detect and block. Running warmup is the recommended first step after installation.
 
@@ -167,6 +172,18 @@ Check current log level with:
 
 ```bash
 reddhog settings
+```
+
+### Browser profile storage
+
+ReddHog stores warmed browser profiles in a persistent OS-specific directory by default.
+This is used by both `reddhog warmup` and scrape commands (`subreddit`, `url`, `refresh`),
+so profiles survive reboot.
+
+Override with:
+
+```dotenv
+REDDHOG_PROFILE_BASE=/custom/path/to/browser_profile
 ```
 
 ### Timing & Environment

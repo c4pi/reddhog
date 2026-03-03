@@ -18,7 +18,7 @@ from reddhog.config import (
 )
 from reddhog.scraper import RedditScraper
 from reddhog.settings import Settings, get_settings
-from reddhog.warmup import DEFAULT_PROFILE_DIR, update_headless_profiles_json
+from reddhog.warmup import update_headless_profiles_json
 from reddhog.warmup import warmup as warmup_fn
 
 
@@ -115,14 +115,14 @@ def warmup_options(f):
     f = click.option(
         "--profile",
         type=click.Path(path_type=Path),
-        default=DEFAULT_PROFILE_DIR,
+        default=BROWSER_PROFILE_BASE,
         show_default=True,
         help="Profile directory when num-profiles=1.",
     )(f)
     f = click.option(
         "--profile-base",
         type=click.Path(path_type=Path),
-        default=DEFAULT_PROFILE_DIR,
+        default=BROWSER_PROFILE_BASE,
         show_default=True,
         help="Base path for profiles when num-profiles>1; dirs will be {base}_0, {base}_1, ...",
     )(f)
