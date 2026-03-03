@@ -8,20 +8,19 @@ import json
 import logging
 from pathlib import Path
 import sys
-import tempfile
 import threading
 from typing import Literal
 
 from anyio import Path as AnyioPath
 from patchright.async_api import Page, async_playwright
 
+from reddhog.config import BROWSER_PROFILE_BASE
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger("reddhog.warmup")
-
-DEFAULT_PROFILE_DIR = Path(tempfile.gettempdir()) / "reddhog_browser_profile"
 WARMUP_URL = "https://www.reddit.com/r/popular/"
 DETECTION_TEST_URLS = [
     "https://bot.sannysoft.com/",
@@ -190,10 +189,10 @@ def update_headless_profiles_json(profile_dirs: list[Path]) -> None:
 
 
 if __name__ == "__main__":
-    saved = asyncio.run(warmup(DEFAULT_PROFILE_DIR, run_detection_tests=False))
+    saved = asyncio.run(warmup(BROWSER_PROFILE_BASE, run_detection_tests=False))
     if not saved:
         for name in ("storage_state.json", "last_user_agent.txt"):
-            (DEFAULT_PROFILE_DIR / name).unlink(missing_ok=True)
+            (BROWSER_PROFILE_BASE / name).unlink(missing_ok=True)
         logger.info(
             "You closed the browser with X. We couldn't save. Re-run and press ENTER to save."
         )

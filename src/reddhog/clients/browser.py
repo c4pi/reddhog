@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 import random
 import re
-import tempfile
 from typing import Any
 
 import aiofiles
@@ -21,13 +20,12 @@ from reddhog.clients.base import BrowserRateLimitError, _is_closed_error, _safe_
 from reddhog.config import (
     BROWSER_COOLDOWN_FALLBACK_SECONDS,
     BROWSER_FIRST_LOAD_TIMEOUT_MS,
+    BROWSER_PROFILE_BASE,
 )
 from reddhog.models import Comment, Image, Post
 from reddhog.utils import safe_int
 
 logger = logging.getLogger("reddit_scraper")
-
-_DEFAULT_PROFILE_DIR = Path(tempfile.gettempdir()) / "reddhog_browser_profile"
 
 _HEADLESS_PROFILES_PATH = Path(__file__).resolve().parent.parent / "defaults" / "headless_profiles.json"
 
@@ -114,7 +112,7 @@ class RedditBrowserClient:
         profile_dir: Path | None = None,
     ):
         self._headless = headless
-        self._profile_dir = Path(profile_dir) if profile_dir else _DEFAULT_PROFILE_DIR
+        self._profile_dir = Path(profile_dir) if profile_dir else BROWSER_PROFILE_BASE
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
