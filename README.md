@@ -83,13 +83,13 @@ Run with `uv run reddhog ...` from the repo (or activate the venv and run `reddh
 
 ```bash
 # Collect + scrape newest 50 new posts
-reddhog subreddit wallpaper 50
+reddhog subreddit wallpaper, learnpython, programming 50
 
 # Scrape a single post with comments
 reddhog url "https://reddit.com/r/python/comments/abc123/my_post/"
 
 # Refresh existing data (e.g. update upvotes and comments for ./data/wallpaper/)
-reddhog refresh wallpaper
+reddhog refresh wallpaper, learnpython
 ```
 
 Results are stored under `./data/<name>/` (e.g. `./data/python/`) as `data.json`, and optionally as Excel or CSV:
@@ -106,14 +106,14 @@ data/
 
 ## 📖 Usage
 
-| Command                          | What it does                                                                                                 |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `reddhog warmup`                 | Warm browser profiles (run once after install). Creates profiles with real cookies/UAs for safer scraping.   |
-| `reddhog version`                | Show version number                                                                                          |
-| `reddhog settings`               | Show effective settings (app_env, debug, log_level)                                                          |
-| `reddhog subreddit NAME [LIMIT]` | Scrape posts from a subreddit; results go to ./data/<name>/                                                  |
-| `reddhog url URL`                | Scrape one post from a Reddit URL                                                                            |
-| `reddhog refresh NAME [LIMIT]`   | Update existing data in ./data/<name>/ (upvotes, comments). Optional LIMIT = only refresh the N newest posts |
+| Command                                     | What it does                                                                                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `reddhog warmup`                            | Warm browser profiles (run once after install). Creates profiles with real cookies/UAs for safer scraping.                               |
+| `reddhog version`                           | Show version number                                                                                                                      |
+| `reddhog settings`                          | Show effective settings (app_env, debug, log_level)                                                                                      |
+| `reddhog subreddit NAME[, NAME...] [LIMIT]` | Scrape posts from one or more subreddits; results go to ./data/<name>/                                                                   |
+| `reddhog url URL`                           | Scrape one post from a Reddit URL                                                                                                        |
+| `reddhog refresh NAME[, NAME...] [LIMIT]`   | Update one or more existing datasets in ./data/<name>/ (upvotes, comments). Optional LIMIT = only refresh the N newest posts per dataset |
 
 ### Global options
 
@@ -154,8 +154,8 @@ reddhog subreddit dataisbeautiful 3 --strategy browser --no-headless
 # Also export to Excel
 reddhog subreddit python --export excel
 
-# Refresh only the 20 newest posts in an existing dataset
-reddhog refresh python 20
+# Refresh only the 20 newest posts in one or more existing datasets
+reddhog refresh python, learnpython 20
 ```
 
 ## Configuration
