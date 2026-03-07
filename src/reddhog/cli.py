@@ -280,28 +280,51 @@ async def async_run(
         await scraper.close()
 
 
-@cli_group.command("subreddit", help="Scrape new posts from a subreddit; results go to ./data/<name>/. LIMIT caps new posts; omit to scrape until existing. Use 'refresh' to update.")
-@click.argument("name", required=True)
-@click.argument("limit", required=False, type=int, metavar="LIMIT")
+def _parse_name_list_args(parts: tuple[str, ...], noun: str) -> tuple[list[str], int | None]:
+    raw_parts = [p.strip() for p in parts if p and p.strip()]
+    if not raw_parts:
+        raise click.UsageError("Provide at least one name.")
+
+    limit: int | None = None
+    if raw_parts[-1].isdigit():
+        limit = int(raw_parts[-1])
+        raw_parts = raw_parts[:-1]
+        if not raw_parts:
+            raise click.UsageError("Provide at least one name before LIMIT.")
+
+    names_text = " ".join(raw_parts).strip()
+    if "," in names_text:
+        names = [n.strip() for n in names_text.split(",") if n.strip()]
+    elif len(raw_parts) == 1:
+        names = [raw_parts[0]]
+    else:
+        raise click.UsageError(f"For multiple {noun}, separate names with commas.")
+
+    return names, limit
+
+
+@cli_group.command("subreddit", help="Scrape new posts from one or more subreddits; results go to ./data/<name>/. Use comma-separated names. Optional trailing LIMIT caps new posts per subreddit.")
+@click.argument("names_and_limit", nargs=-1, required=True, metavar="SUBREDDIT[,SUBREDDIT...] [LIMIT]")
 @shared_options
 def cmd_subreddit(
-    name: str,
-    limit: int | None,
+    names_and_limit: tuple[str, ...],
     strategy: str,
     concurrency: int,
     headless: bool,
     export: str | None,
 ) -> None:
-    _run_async(
-        async_run,
-        strategy,
-        concurrency,
-        headless,
-        export,
-        "subreddit",
-        name=name.strip(),
-        limit=limit,
-    )
+    names, limit = _parse_name_list_args(names_and_limit, "subreddits")
+    for name in names:
+        _run_async(
+            async_run,
+            strategy,
+            concurrency,
+            headless,
+            export,
+            "subreddit",
+            name=name.strip(),
+            limit=limit,
+        )
 
 
 @cli_group.command("url", help="Scrape one post from a Reddit URL.")
@@ -328,28 +351,28 @@ def cmd_url(
     )
 
 
-@cli_group.command("refresh", help="Update ./data/<name>/: re-fetch upvotes, comment counts, new comments. NAME = dataset name. LIMIT = newest N posts only; omit = all.")
-@click.argument("name", required=True)
-@click.argument("limit", required=False, type=int, metavar="LIMIT")
+@cli_group.command("refresh", help="Update one or more datasets in ./data/<name>/: re-fetch upvotes, comment counts, new comments. Use comma-separated names. Optional trailing LIMIT refreshes only the newest N posts per dataset.")
+@click.argument("names_and_limit", nargs=-1, required=True, metavar="NAME[,NAME...] [LIMIT]")
 @shared_options
 def cmd_refresh(
-    name: str,
-    limit: int | None,
+    names_and_limit: tuple[str, ...],
     strategy: str,
     concurrency: int,
     headless: bool,
     export: str | None,
 ) -> None:
-    _run_async(
-        async_run,
-        strategy,
-        concurrency,
-        headless,
-        export,
-        "refresh",
-        name=name.strip(),
-        limit=limit,
-    )
+    names, limit = _parse_name_list_args(names_and_limit, "names")
+    for name in names:
+        _run_async(
+            async_run,
+            strategy,
+            concurrency,
+            headless,
+            export,
+            "refresh",
+            name=name.strip(),
+            limit=limit,
+        )
 
 
 def main() -> None:
